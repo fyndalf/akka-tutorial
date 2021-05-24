@@ -26,16 +26,15 @@ public class Master extends AbstractLoggingActor {
 	
 	public static final String DEFAULT_NAME = "master";
 
-	public static Props props(final ActorRef reader, final ActorRef collector, final BloomFilter welcomeData) {
-		return Props.create(Master.class, () -> new Master(reader, collector, welcomeData));
+	public static Props props(final ActorRef reader, final ActorRef collector) {
+		return Props.create(Master.class, () -> new Master(reader, collector));
 	}
 
-	public Master(final ActorRef reader, final ActorRef collector, final BloomFilter welcomeData) {
+	public Master(final ActorRef reader, final ActorRef collector) {
 		this.reader = reader;
 		this.collector = collector;
 		this.workers = new ArrayList<>();
 		this.largeMessageProxy = this.context().actorOf(LargeMessageProxy.props(), LargeMessageProxy.DEFAULT_NAME);
-		this.welcomeData = welcomeData;
 	}
 
 	////////////////////
@@ -72,7 +71,6 @@ public class Master extends AbstractLoggingActor {
 	private final ActorRef collector;
 	private final List<ActorRef> workers;
 	private final ActorRef largeMessageProxy;
-	private final BloomFilter welcomeData;
 
 	private final Queue<ActorRef> idleWorkers = new LinkedBlockingQueue<>();
 	private final Queue<TaskMessage> taskMessages = new LinkedBlockingQueue<>();
@@ -200,12 +198,10 @@ public class Master extends AbstractLoggingActor {
 	protected void handle(Worker.CompletionMessage message) {
 		this.idleWorkers.add(this.sender());
 		passwordsInQueueCounter	--;
-	
+		this.collector.tell(new Collector.CollectMessage(message.getPassword()), this.self());
 		// we have cracked all passwords and can terminate the cracking
 		if (passwordsInQueueCounter == 0 && this.taskMessages.size() == 0) {
 			this.terminate();
 		}
-
-		this.collector.tell(new Collector.CollectMessage(this.sender().result()), this.self());
 	}
 }

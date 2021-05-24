@@ -54,7 +54,7 @@ public class Worker extends AbstractLoggingActor {
 	@Data @NoArgsConstructor @AllArgsConstructor
 	public static class CompletionMessage implements Serializable {
 		private static final long serialVersionUID = 2333143952648649095L;
-		private String password;
+		private String result;
 	}
 	
 	/////////////////
