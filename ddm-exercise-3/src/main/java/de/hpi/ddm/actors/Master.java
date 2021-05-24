@@ -61,7 +61,7 @@ public class Master extends AbstractLoggingActor {
 	@Data @AllArgsConstructor @NoArgsConstructor
 	public static class TaskMessage implements Serializable {
 		private static final long serialVersionUID = 8263091671855768242L;
-		private Sting[] taskLine;
+		private String[] line;
 	}
 	
 	/////////////////
@@ -102,7 +102,7 @@ public class Master extends AbstractLoggingActor {
 				.match(Terminated.class, this::handle)
 				.match(RegistrationMessage.class, this::handle)
 				// TODO: Add further messages here to share work between Master and Worker actors
-				.match(CompletionMessage.class, this::handle)
+				.match(Worker.CompletionMessage.class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
 				.build();
 	}
@@ -137,12 +137,12 @@ public class Master extends AbstractLoggingActor {
 		
 		// TODO: Process the lines with the help of the worker actors
 		for (String[] line : message.getLines()){
-			this.taskMessages.add(TaskMessage(line));
+			this.taskMessages.add(new TaskMessage(line));
 		}
-
+		ActorRef currentWorker;
 		for (TaskMessage task:this.taskMessages){
-			while(this.idleWorkers.isEmpty())
-			ActorRef currentWorker = this.idleWorkers.remove();
+			while(this.idleWorkers.isEmpty()) {}
+			 currentWorker = this.idleWorkers.remove();
 			// todo: use large message proxy for sending
 			currentWorker.tell(this.taskMessages.remove(), this.self());
 			workerTaskAssignment.put(currentWorker, task);
@@ -197,7 +197,7 @@ public class Master extends AbstractLoggingActor {
 		}
 	}
 
-	protected void handle(CompletionMessage message) {
+	protected void handle(Worker.CompletionMessage message) {
 		this.idleWorkers.add(this.sender());
 		passwordsInQueueCounter	--;
 	

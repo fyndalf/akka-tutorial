@@ -1,10 +1,12 @@
 package de.hpi.ddm.actors;
 
+import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
+import java.lang.reflect.Array;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.List;
+import java.util.*;
 
 import akka.actor.AbstractLoggingActor;
 import akka.actor.ActorRef;
@@ -18,6 +20,9 @@ import de.hpi.ddm.actors.Master.TaskMessage;
 import de.hpi.ddm.systems.MasterSystem;
 import akka.cluster.Member;
 import akka.cluster.MemberStatus;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 public class Worker extends AbstractLoggingActor {
 
@@ -60,13 +65,14 @@ public class Worker extends AbstractLoggingActor {
 	private final Cluster cluster;
 	private final ActorRef largeMessageProxy;
 
-	private Set<Character> passwordAlphabet;
+	private char[] passwordAlphabet;
 	private int passwordLength;
 	private boolean passwordPropertiesDetermined = false;
-	
+
+	private String passwordToCrack;
 	private String hashedPassword;
 	private List<Character> crackedHints;
-	private ArrayList<String> hintHashes;
+	private String[] hintHashes;
 	private String crackedPassword = "";
 	private int numberOfHints;
 	
@@ -130,15 +136,18 @@ public class Worker extends AbstractLoggingActor {
 
 	private void handle(TaskMessage task) {
 		//0. Pre-Processing
+		String[] line = task.getLine();
+
 		if (!passwordPropertiesDetermined) {
-			this.passwordAlphabet = task.line[2].toCharSet();
-			this.hashedPassword = task.line[3];
-			this.passwordLength = Integer.parseInt(task.line[3]);
-			this.passwordToCrack = task.line[4];
+
+			this.passwordAlphabet = line[2].toCharArray();
+			this.hashedPassword = line[3];
+			this.passwordLength = Integer.parseInt(line[3]);
+			this.passwordToCrack = line[4];
 		}
 
-		this.numberOfHints = task.line.length() - 5;
-		this.hintHashes =  Array.copyOfRange(task.line, 5, task.line.length);
+		this.numberOfHints = line.length - 5;
+		this.hintHashes =  Arrays.copyOfRange(line, 5, line.length);
 		this.crackedHints = new ArrayList<>();
 		
 		//1. Hint cracking
@@ -147,11 +156,11 @@ public class Worker extends AbstractLoggingActor {
 		// difference between cracked hints & password alphabet -> password characters
 
 		Set<Character> impossiblePasswordCharacters = new HashSet(crackedHints);
-		Set<Character> alphabetCopy = new HashSet<>(passwordAlphabet);
-		Set<Character> possiblePasswordCharacters = alphabetCopy.removeAll(impossiblePasswordCharacters);
+		Set<Character> passwordCharacters = new HashSet(Collections.singleton(passwordAlphabet));
+		passwordCharacters.removeAll(impossiblePasswordCharacters);
 
 		//2. PW cracking
-		this.printAllKLength(possiblePasswordCharacters,this.passwordLength);
+		this.printAllKLength(Arrays.copyOf(passwordCharacters.toArray(), passwordCharacters.size(), Character[].class) ,this.passwordLength);
 
 		//3. Send PW to Master
 		CompletionMessage completed = new CompletionMessage(this.crackedPassword);
@@ -187,7 +196,7 @@ public class Worker extends AbstractLoggingActor {
 		}
 	}
 
-	private void checkPassword(Strting possiblePassword) {
+	private void checkPassword(String possiblePassword) {
 		String possiblePasswordHash = hash(possiblePassword);
 		if(possiblePasswordHash.equals(hashedPassword)){
 			System.out.println("Found the password!");
@@ -203,7 +212,7 @@ public class Worker extends AbstractLoggingActor {
 		// If size is 1, store the obtained permutation
 		if (size == 1)
 			this.checkPermutation(new String(a));
-			if (this.crackedHints.size() >= this.hintHashes.size()) {
+			if (this.crackedHints.size() >= this.hintHashes.length) {
 				return;
 			}
 
@@ -226,7 +235,7 @@ public class Worker extends AbstractLoggingActor {
 		}
 	}
 
-	private void printAllKLength(char[] set, int k) {
+	private void printAllKLength(Character[] set, int k) {
 		int n = set.length;
 		printAllKLengthRec(set, "", n, k);
 		return;
@@ -235,7 +244,7 @@ public class Worker extends AbstractLoggingActor {
 	// The main recursive method
 	// to print all possible
 	// strings of length k
-	private void printAllKLengthRec(char[] set, String prefix, int n, int k)	{
+	private void printAllKLengthRec(Character[] set, String prefix, int n, int k)	{
 		if (!this.crackedPassword.equals("")) {
 			return;
 		}
