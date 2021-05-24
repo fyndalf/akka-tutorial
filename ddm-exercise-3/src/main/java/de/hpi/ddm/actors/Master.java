@@ -2,7 +2,6 @@ package de.hpi.ddm.actors;
 
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Queue;
 import java.util.HashMap;
@@ -13,7 +12,6 @@ import akka.actor.ActorRef;
 import akka.actor.PoisonPill;
 import akka.actor.Props;
 import akka.actor.Terminated;
-import de.hpi.ddm.structures.BloomFilter;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -99,7 +97,6 @@ public class Master extends AbstractLoggingActor {
 				.match(BatchMessage.class, this::handle)
 				.match(Terminated.class, this::handle)
 				.match(RegistrationMessage.class, this::handle)
-				// TODO: Add further messages here to share work between Master and Worker actors
 				.match(Worker.CompletionMessage.class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
 				.build();
@@ -113,7 +110,6 @@ public class Master extends AbstractLoggingActor {
 	
 	protected void handle(BatchMessage message) {
 		
-		// TODO: This is where the task begins:
 		// - The Master received the first batch of input records.
 		// - To receive the next batch, we need to send another ReadMessage to the reader.
 		// - If the received BatchMessage is empty, we have seen all data for this task.
@@ -127,32 +123,37 @@ public class Master extends AbstractLoggingActor {
 		// b) Memory reduction: If the batches are processed sequentially, the memory consumption can be kept constant; if the entire input is read into main memory, the memory consumption scales at least linearly with the input size.
 		// - It is your choice, how and if you want to make use of the batched inputs. Simply aggregate all batches in the Master and start the processing afterwards, if you wish.
 
-		// TODO: Stop fetching lines from the Reader once an empty BatchMessage was received; we have seen all data then
+		// Stop fetching lines from the Reader once an empty BatchMessage was received; we have seen all data then
 		if (message.getLines().isEmpty()) {
-			this.terminate();
+			log().info("Latest log chunk was empty, stop fetching new chunks.");
 			return;
 		}
-		
-		// TODO: Process the lines with the help of the worker actors
+
+		log().info("Got log chunk, adding {} tasks", message.getLines().size());
+		passwordsInQueueCounter += message.getLines().size();
+
 		for (String[] line : message.getLines()){
 			this.taskMessages.add(new TaskMessage(line));
 		}
-		ActorRef currentWorker;
-		for (TaskMessage task:this.taskMessages){
-			while(this.idleWorkers.isEmpty()) {}
-			 currentWorker = this.idleWorkers.remove();
-			// todo: use large message proxy for sending
-			currentWorker.tell(this.taskMessages.remove(), this.self());
-			workerTaskAssignment.put(currentWorker, task);
+
+		while (!this.idleWorkers.isEmpty() && !this.taskMessages.isEmpty()) {
+			assignAvailableTaskToWorker();
 		}
-		
-		
-		// TODO: Send (partial) results to the Collector
-		//this.collector.tell(new Collector.CollectMessage("If I had results, this would be one."), this.self());
-		
-		// TODO: Fetch further lines from the Reader
+
 		this.reader.tell(new Reader.ReadMessage(), this.self());
 
+	}
+
+	private void assignAvailableTaskToWorker() {
+		ActorRef availableWorker = this.idleWorkers.remove();
+		assignAvailableTaskToWorker(availableWorker);
+	}
+
+	private void assignAvailableTaskToWorker(ActorRef worker) {
+		TaskMessage task = this.taskMessages.remove();
+		worker.tell(task, this.self());
+		log().info("Sent task to worker {}", worker);
+		workerTaskAssignment.put(worker, task);
 	}
 	
 	protected void terminate() {
@@ -177,10 +178,14 @@ public class Master extends AbstractLoggingActor {
 		this.workers.add(this.sender());
 		this.log().info("Registered {}", this.sender());
 		
+		//todo: use large message proxy to send task data
 		//this.largeMessageProxy.tell(new LargeMessageProxy.LargeMessage<>(new Worker.WelcomeMessage(this.welcomeData), this.sender()), this.self());
 		
-		// TODO: Assign some work to registering workers. Note that the processing of the global task might have already started.
-		this.idleWorkers.add(this.sender());
+		if (!this.taskMessages.isEmpty()) {
+			assignAvailableTaskToWorker(this.sender());
+		} else {
+			this.idleWorkers.add(this.sender());
+		}
 	
 	}
 	
@@ -188,20 +193,31 @@ public class Master extends AbstractLoggingActor {
 		this.context().unwatch(message.getActor());
 		this.workers.remove(message.getActor());
 		this.log().info("Unregistered {}", message.getActor());
-		// todo: re-register task
-		TaskMessage task = workerTaskAssignment.get(message.getActor());
-		if (task != null){
-			this.taskMessages.add(task);
+		TaskMessage cancelledTask = workerTaskAssignment.get(message.getActor());
+		if (cancelledTask != null){
+			this.taskMessages.add(cancelledTask);
+			while (!this.idleWorkers.isEmpty() && !this.taskMessages.isEmpty()) {
+				assignAvailableTaskToWorker();
+			}
 		}
 	}
 
 	protected void handle(Worker.CompletionMessage message) {
 		this.idleWorkers.add(this.sender());
 		passwordsInQueueCounter	--;
-		this.collector.tell(new Collector.CollectMessage(message.getPassword()), this.self());
+		workerTaskAssignment.remove(sender());
+		log().info("Got password from worker {}", this.sender());
+		this.collector.tell(new Collector.CollectMessage(message.getResult()), this.self());
 		// we have cracked all passwords and can terminate the cracking
-		if (passwordsInQueueCounter == 0 && this.taskMessages.size() == 0) {
+		if (passwordsInQueueCounter <= 0 && this.taskMessages.isEmpty()) {
+			log().info("Received last password, terminating execution and printing results");
 			this.terminate();
+		} else {
+			if (!this.idleWorkers.isEmpty()  && !this.taskMessages.isEmpty()) {
+				assignAvailableTaskToWorker(this.sender());
+			} else {
+				this.idleWorkers.add(this.sender());
+			}
 		}
 	}
 }
