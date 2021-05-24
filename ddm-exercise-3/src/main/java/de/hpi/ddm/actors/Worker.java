@@ -32,6 +32,7 @@ public class Worker extends AbstractLoggingActor {
 
 	public Worker() {
 		this.cluster = Cluster.get(this.context().system());
+		this.largeMessageProxy = this.context().actorOf(LargeMessageProxy.props(), LargeMessageProxy.DEFAULT_NAME);
 	}
 	
 	////////////////////
@@ -50,6 +51,7 @@ public class Worker extends AbstractLoggingActor {
 
 	private Member masterSystem;
 	private final Cluster cluster;
+	private final ActorRef largeMessageProxy;
 	
 	/////////////////////
 	// Actor Lifecycle //
