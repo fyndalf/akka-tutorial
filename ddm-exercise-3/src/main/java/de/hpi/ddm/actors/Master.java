@@ -198,7 +198,7 @@ public class Master extends AbstractLoggingActor {
 	protected void handle(Worker.CompletionMessage message) {
 		this.idleWorkers.add(this.sender());
 		passwordsInQueueCounter	--;
-		this.collector.tell(new Collector.CollectMessage(message.getPassword()), this.self());
+		this.collector.tell(new Collector.CollectMessage(message.getResult()), this.self());
 		// we have cracked all passwords and can terminate the cracking
 		if (passwordsInQueueCounter == 0 && this.taskMessages.size() == 0) {
 			this.terminate();
