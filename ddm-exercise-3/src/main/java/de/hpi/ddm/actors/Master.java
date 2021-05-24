@@ -4,6 +4,9 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Queue;
+import java.util.HashMap;
+import java.util.concurrent.LinkedBlockingQueue;
 
 import akka.actor.AbstractLoggingActor;
 import akka.actor.ActorRef;
@@ -23,15 +26,16 @@ public class Master extends AbstractLoggingActor {
 	
 	public static final String DEFAULT_NAME = "master";
 
-	public static Props props(final ActorRef reader, final ActorRef collector) {
-		return Props.create(Master.class, () -> new Master(reader, collector));
+	public static Props props(final ActorRef reader, final ActorRef collector, final BloomFilter welcomeData) {
+		return Props.create(Master.class, () -> new Master(reader, collector, welcomeData));
 	}
 
-	public Master(final ActorRef reader, final ActorRef collector) {
+	public Master(final ActorRef reader, final ActorRef collector, final BloomFilter welcomeData) {
 		this.reader = reader;
 		this.collector = collector;
 		this.workers = new ArrayList<>();
 		this.largeMessageProxy = this.context().actorOf(LargeMessageProxy.props(), LargeMessageProxy.DEFAULT_NAME);
+		this.welcomeData = welcomeData;
 	}
 
 	////////////////////
@@ -54,6 +58,12 @@ public class Master extends AbstractLoggingActor {
 		private static final long serialVersionUID = 3303081601659723997L;
 	}
 	
+	@Data @AllArgsConstructor @NoArgsConstructor
+	public static class TaskMessage implements Serializable {
+		private static final long serialVersionUID = 8263091671855768242L;
+		private Sting[] taskLine;
+	}
+	
 	/////////////////
 	// Actor State //
 	/////////////////
@@ -62,6 +72,12 @@ public class Master extends AbstractLoggingActor {
 	private final ActorRef collector;
 	private final List<ActorRef> workers;
 	private final ActorRef largeMessageProxy;
+	private final BloomFilter welcomeData;
+
+	private final Queue<ActorRef> idleWorkers = new LinkedBlockingQueue<>();
+	private final Queue<TaskMessage> taskMessages = new LinkedBlockingQueue<>();
+	private final HashMap<ActorRef, TaskMessage> workerTaskAssignment = new HashMap<>();
+	private int passwordsInQueueCounter = 0;
 
 	private long startTime;
 	
@@ -86,6 +102,7 @@ public class Master extends AbstractLoggingActor {
 				.match(Terminated.class, this::handle)
 				.match(RegistrationMessage.class, this::handle)
 				// TODO: Add further messages here to share work between Master and Worker actors
+				.match(CompletionMessage.class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
 				.build();
 	}
@@ -119,15 +136,25 @@ public class Master extends AbstractLoggingActor {
 		}
 		
 		// TODO: Process the lines with the help of the worker actors
-		for (String[] line : message.getLines())
-			this.log().error("Need help processing: {}", Arrays.toString(line));
+		for (String[] line : message.getLines()){
+			this.taskMessages.add(TaskMessage(line));
+		}
+
+		for (TaskMessage task:this.taskMessages){
+			while(this.idleWorkers.isEmpty())
+			ActorRef currentWorker = this.idleWorkers.remove();
+			// todo: use large message proxy for sending
+			currentWorker.tell(this.taskMessages.remove(), this.self());
+			workerTaskAssignment.put(currentWorker, task);
+		}
+		
 		
 		// TODO: Send (partial) results to the Collector
-		this.collector.tell(new Collector.CollectMessage("If I had results, this would be one."), this.self());
+		//this.collector.tell(new Collector.CollectMessage("If I had results, this would be one."), this.self());
 		
 		// TODO: Fetch further lines from the Reader
 		this.reader.tell(new Reader.ReadMessage(), this.self());
-		
+
 	}
 	
 	protected void terminate() {
@@ -152,14 +179,33 @@ public class Master extends AbstractLoggingActor {
 		this.workers.add(this.sender());
 		this.log().info("Registered {}", this.sender());
 		
-		// this.largeMessageProxy.tell(new LargeMessageProxy.LargeMessage<>(new Worker.WelcomeMessage(this.welcomeData), this.sender()), this.self());
+		//this.largeMessageProxy.tell(new LargeMessageProxy.LargeMessage<>(new Worker.WelcomeMessage(this.welcomeData), this.sender()), this.self());
 		
 		// TODO: Assign some work to registering workers. Note that the processing of the global task might have already started.
+		this.idleWorkers.add(this.sender());
+	
 	}
 	
 	protected void handle(Terminated message) {
 		this.context().unwatch(message.getActor());
 		this.workers.remove(message.getActor());
 		this.log().info("Unregistered {}", message.getActor());
+		// todo: re-register task
+		TaskMessage task = workerTaskAssignment.get(message.getActor());
+		if (task != null){
+			this.taskMessages.add(task);
+		}
+	}
+
+	protected void handle(CompletionMessage message) {
+		this.idleWorkers.add(this.sender());
+		passwordsInQueueCounter	--;
+	
+		// we have cracked all passwords and can terminate the cracking
+		if (passwordsInQueueCounter == 0 && this.taskMessages.size() == 0) {
+			this.terminate();
+		}
+
+		this.collector.tell(new Collector.CollectMessage(this.sender().result()), this.self());
 	}
 }
