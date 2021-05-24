@@ -23,16 +23,14 @@ public class Master extends AbstractLoggingActor {
 	
 	public static final String DEFAULT_NAME = "master";
 
-	public static Props props(final ActorRef reader, final ActorRef collector, final BloomFilter welcomeData) {
-		return Props.create(Master.class, () -> new Master(reader, collector, welcomeData));
+	public static Props props(final ActorRef reader, final ActorRef collector) {
+		return Props.create(Master.class, () -> new Master(reader, collector));
 	}
 
-	public Master(final ActorRef reader, final ActorRef collector, final BloomFilter welcomeData) {
+	public Master(final ActorRef reader, final ActorRef collector) {
 		this.reader = reader;
 		this.collector = collector;
 		this.workers = new ArrayList<>();
-		this.largeMessageProxy = this.context().actorOf(LargeMessageProxy.props(), LargeMessageProxy.DEFAULT_NAME);
-		this.welcomeData = welcomeData;
 	}
 
 	////////////////////
@@ -62,8 +60,6 @@ public class Master extends AbstractLoggingActor {
 	private final ActorRef reader;
 	private final ActorRef collector;
 	private final List<ActorRef> workers;
-	private final ActorRef largeMessageProxy;
-	private final BloomFilter welcomeData;
 
 	private long startTime;
 	
@@ -154,7 +150,7 @@ public class Master extends AbstractLoggingActor {
 		this.workers.add(this.sender());
 		this.log().info("Registered {}", this.sender());
 		
-		this.largeMessageProxy.tell(new LargeMessageProxy.LargeMessage<>(new Worker.WelcomeMessage(this.welcomeData), this.sender()), this.self());
+		// this.largeMessageProxy.tell(new LargeMessageProxy.LargeMessage<>(new Worker.WelcomeMessage(this.welcomeData), this.sender()), this.self());
 		
 		// TODO: Assign some work to registering workers. Note that the processing of the global task might have already started.
 	}

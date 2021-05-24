@@ -1,7 +1,7 @@
 package de.hpi.ddm.actors;
 
-import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
@@ -14,11 +14,7 @@ import akka.cluster.Cluster;
 import akka.cluster.ClusterEvent.CurrentClusterState;
 import akka.cluster.ClusterEvent.MemberRemoved;
 import akka.cluster.ClusterEvent.MemberUp;
-import de.hpi.ddm.structures.BloomFilter;
 import de.hpi.ddm.systems.MasterSystem;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 import akka.cluster.Member;
 import akka.cluster.MemberStatus;
 
@@ -36,18 +32,17 @@ public class Worker extends AbstractLoggingActor {
 
 	public Worker() {
 		this.cluster = Cluster.get(this.context().system());
-		this.largeMessageProxy = this.context().actorOf(LargeMessageProxy.props(), LargeMessageProxy.DEFAULT_NAME);
 	}
 	
 	////////////////////
 	// Actor Messages //
 	////////////////////
 
-	@Data @NoArgsConstructor @AllArgsConstructor
+	/*@Data @NoArgsConstructor @AllArgsConstructor
 	public static class WelcomeMessage implements Serializable {
 		private static final long serialVersionUID = 8343040942748609598L;
 		private BloomFilter welcomeData;
-	}
+	}*/
 	
 	/////////////////
 	// Actor State //
@@ -55,8 +50,6 @@ public class Worker extends AbstractLoggingActor {
 
 	private Member masterSystem;
 	private final Cluster cluster;
-	private final ActorRef largeMessageProxy;
-	private long registrationTime;
 	
 	/////////////////////
 	// Actor Lifecycle //
@@ -84,7 +77,6 @@ public class Worker extends AbstractLoggingActor {
 				.match(CurrentClusterState.class, this::handle)
 				.match(MemberUp.class, this::handle)
 				.match(MemberRemoved.class, this::handle)
-				.match(WelcomeMessage.class, this::handle)
 				// TODO: Add further messages here to share work between Master and Worker actors
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
 				.build();
@@ -108,8 +100,6 @@ public class Worker extends AbstractLoggingActor {
 			this.getContext()
 				.actorSelection(member.address() + "/user/" + Master.DEFAULT_NAME)
 				.tell(new Master.RegistrationMessage(), this.self());
-			
-			this.registrationTime = System.currentTimeMillis();
 		}
 	}
 	
@@ -117,24 +107,19 @@ public class Worker extends AbstractLoggingActor {
 		if (this.masterSystem.equals(message.member()))
 			this.self().tell(PoisonPill.getInstance(), ActorRef.noSender());
 	}
-	
-	private void handle(WelcomeMessage message) {
-		final long transmissionTime = System.currentTimeMillis() - this.registrationTime;
-		this.log().info("WelcomeMessage with " + message.getWelcomeData().getSizeInMB() + " MB data received in " + transmissionTime + " ms.");
-	}
-	
+
 	private String hash(String characters) {
 		try {
 			MessageDigest digest = MessageDigest.getInstance("SHA-256");
-			byte[] hashedBytes = digest.digest(String.valueOf(characters).getBytes("UTF-8"));
+			byte[] hashedBytes = digest.digest(String.valueOf(characters).getBytes(StandardCharsets.UTF_8));
 			
-			StringBuffer stringBuffer = new StringBuffer();
+			StringBuilder stringBuffer = new StringBuilder();
 			for (int i = 0; i < hashedBytes.length; i++) {
 				stringBuffer.append(Integer.toString((hashedBytes[i] & 0xff) + 0x100, 16).substring(1));
 			}
 			return stringBuffer.toString();
 		}
-		catch (NoSuchAlgorithmException | UnsupportedEncodingException e) {
+		catch (NoSuchAlgorithmException e) {
 			throw new RuntimeException(e.getMessage());
 		}
 	}
