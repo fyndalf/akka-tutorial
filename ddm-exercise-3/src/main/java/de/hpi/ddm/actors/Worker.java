@@ -132,12 +132,14 @@ public class Worker extends AbstractLoggingActor {
 
 			this.passwordAlphabet = line[2].toCharArray();
 			this.passwordLength = Integer.parseInt(line[3]);
-			this.passwordToCrack = line[4];
+
 			passwordPropertiesDetermined = true;
 		}
 
+		this.passwordToCrack = line[4];
 		this.hintHashes =  Arrays.copyOfRange(line, 5, line.length);
 		this.crackedHints = new ArrayList<>();
+		this.crackedPassword = "";
 		
 		//1. Hint cracking
 		log().info("Start cracking hints - 1/3");
