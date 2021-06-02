@@ -57,13 +57,8 @@ public class Worker extends AbstractLoggingActor {
 	private final Cluster cluster;
 	private final ActorRef largeMessageProxy;
 
-	private char[] passwordAlphabet;
-	private int passwordLength;
-	private boolean passwordPropertiesDetermined = false;
-
-	private String passwordToCrack;
-	private List<Character> crackedHints;
-	private String[] hintHashes;
+	private List<Character> crackedHints = new ArrayList<>();
+	private List<String> hintHashes;
 	private String crackedPassword = "";
 
 	/////////////////////
@@ -128,53 +123,39 @@ public class Worker extends AbstractLoggingActor {
 		//0. Pre-Processing
 		String[] line = task.getLine();
 
-		if (!passwordPropertiesDetermined) {
-
-			this.passwordAlphabet = line[2].toCharArray();
-			this.passwordLength = Integer.parseInt(line[3]);
-
-			passwordPropertiesDetermined = true;
-		}
-
-		this.passwordToCrack = line[4];
-		this.hintHashes =  Arrays.copyOfRange(line, 5, line.length);
+		char[] globalAlphabet = Arrays.copyOf(line[2].toCharArray(), line[2].toCharArray().length);
+		int passwordLength = Integer.parseInt(line[3]);
+		String passwordToCrack = line[4];
+		this.hintHashes = new ArrayList(Arrays.asList(Arrays.copyOfRange(line, 5, line.length)));
 		this.crackedHints = new ArrayList<>();
 		this.crackedPassword = "";
-		
+
 		//1. Hint cracking
 		log().info("Start cracking hints - 1/3");
-		this.generatePermutation(this.passwordAlphabet, this.passwordLength);
-		// difference between cracked hints & password alphabet -> password characters
-
-		Set<Character> impossiblePasswordCharacters = new HashSet<>(crackedHints);
-
-		Character[] passwordAlphabetArray = new Character[passwordAlphabet.length];
-		int i = 0;
-		for (char value : passwordAlphabet) {
-			passwordAlphabetArray[i++] = value;
+		generatePermutation(globalAlphabet, globalAlphabet.length);
+		List<Character> passwordAlphabet = new ArrayList<>();
+		for (char character : globalAlphabet) {
+			if (!this.crackedHints.contains(character)) {
+				passwordAlphabet.add(character);
+			}
 		}
-
-		Set<Character> passwordCharacters = new HashSet<>(Arrays.asList(passwordAlphabetArray));
-		passwordCharacters.removeAll(impossiblePasswordCharacters);
 
 		//2. PW cracking
 		log().info("Start cracking password - 2/3");
-		this.generateCombination(Arrays.copyOf(passwordCharacters.toArray(), passwordCharacters.size(), Character[].class) ,this.passwordLength);
+		generateCombinations(passwordAlphabet, "", passwordAlphabet.size(), passwordLength, passwordToCrack);
 
 		//3. Send PW to Master
 		// todo: use large message proxy
 		log().info("Send to master - 3/3");
 		CompletionMessage completed = new CompletionMessage(this.crackedPassword);
 		this.sender().tell(completed, this.self());
-
-		
 	}
 
 	private String hash(String characters) {
 		try {
 			MessageDigest digest = MessageDigest.getInstance("SHA-256");
 			byte[] hashedBytes = digest.digest(String.valueOf(characters).getBytes(StandardCharsets.UTF_8));
-			
+
 			StringBuilder stringBuffer = new StringBuilder();
 			for (byte hashedByte : hashedBytes) {
 				stringBuffer.append(Integer.toString((hashedByte & 0xff) + 0x100, 16).substring(1));
@@ -187,32 +168,31 @@ public class Worker extends AbstractLoggingActor {
 	}
 
 	private void checkPermutation(String permutation){
-		char impossiblePasswordCharacter = permutation.charAt(0);
-		String possibleHintHash = hash(permutation.substring(1));
-		for(String hint:this.hintHashes){
-			if(possibleHintHash.equals(hint)) {
+		char impossiblePasswordCharacter = permutation.charAt(permutation.length() - 1);
+		String possibleHintHash = hash(permutation.substring(0, permutation.length() - 1));
+		for (String hint:this.hintHashes) {
+			if (possibleHintHash.equals(hint)) {
+				this.hintHashes.remove(hint);
 				this.crackedHints.add(impossiblePasswordCharacter);
 				break;
 			}
 		}
 	}
 
-	private void checkPassword(String possiblePassword) {
-		String possiblePasswordHash = hash(possiblePassword);
-		if(possiblePasswordHash.equals(passwordToCrack)){
-			log().info("Found the password!");
-			this.crackedPassword = possiblePassword;
+	private void generatePermutation(char[] a, int size) {
+		// If no more permutations needed, exit the algorithm
+		if (this.crackedHints.size() >= this.hintHashes.size()) {
 			return;
 		}
-	}
-	
-	private void generatePermutation(char[] a, int size) {
+
 		// If size is 1, store the obtained permutation
-		if (size == 1)
+		if (size == 1) {
 			this.checkPermutation(new String(a));
-			if (this.crackedHints.size() >= this.hintHashes.length) {
+			// if we have cracked all hints, we no longer need to search.
+			if (this.crackedHints.size() >= this.hintHashes.size()) {
 				return;
 			}
+		}
 
 		for (int i = 0; i < size; i++) {
 			generatePermutation(a, size - 1);
@@ -233,35 +213,22 @@ public class Worker extends AbstractLoggingActor {
 		}
 	}
 
-	private void generateCombination(Character[] set, int k) {
-		int n = set.length;
-		generateCombination(set, "", n, k);
-	}
-
-	// The main recursive method
-	// to print all possible
-	// strings of length k
-	private void generateCombination(Character[] set, String prefix, int n, int k)	{
+	private void generateCombinations(List<Character> set, String prefix, int n, int k, String passwordHash)  {
 		if (!this.crackedPassword.equals("")) {
 			return;
 		}
-		// Base case: k is 0,
-		// print prefix
-		if (k == 0)	{
-			checkPassword(prefix);
+
+		if (k == 0) {
+			if (hash(prefix).equals(passwordHash)) {
+				this.crackedPassword = prefix;
+			}
 			return;
 		}
 
-		// One by one add all characters
-		// from set and recursively
-		// call for k equals to k-1
-		for (int i = 0; i < n; ++i){
-			// Next character of input added
-			String newPrefix = prefix + set[i];
-
-			// k is decreased, because
-			// we have added a new character
-			generateCombination(set, newPrefix, n, k - 1);
+		for (int i = 0; i < n; i++) {
+			String newPrefix = (prefix + set.get(i));
+			generateCombinations(set, newPrefix, n, k - 1, passwordHash);
 		}
 	}
+
 }
