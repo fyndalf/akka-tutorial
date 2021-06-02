@@ -27,7 +27,7 @@ public class Worker extends AbstractLoggingActor {
 	////////////////////////
 	// Actor Construction //
 	////////////////////////
-	
+
 	public static final String DEFAULT_NAME = "worker";
 
 	public static Props props() {
@@ -38,7 +38,7 @@ public class Worker extends AbstractLoggingActor {
 		this.cluster = Cluster.get(this.context().system());
 		this.largeMessageProxy = this.context().actorOf(LargeMessageProxy.props(), LargeMessageProxy.DEFAULT_NAME);
 	}
-	
+
 	////////////////////
 	// Actor Messages //
 	////////////////////
@@ -47,8 +47,9 @@ public class Worker extends AbstractLoggingActor {
 	public static class CompletionMessage implements Serializable {
 		private static final long serialVersionUID = 2333143952648649095L;
 		private String result;
+		private String resultId;
 	}
-	
+
 	/////////////////
 	// Actor State //
 	/////////////////
@@ -68,7 +69,7 @@ public class Worker extends AbstractLoggingActor {
 	@Override
 	public void preStart() {
 		Reaper.watchWithDefaultReaper(this);
-		
+
 		this.cluster.subscribe(this.self(), MemberUp.class, MemberRemoved.class);
 	}
 
@@ -106,26 +107,27 @@ public class Worker extends AbstractLoggingActor {
 	private void register(Member member) {
 		if ((this.masterSystem == null) && member.hasRole(MasterSystem.MASTER_ROLE)) {
 			this.masterSystem = member;
-			
+
 			this.getContext()
 				.actorSelection(member.address() + "/user/" + Master.DEFAULT_NAME)
 				.tell(new Master.RegistrationMessage(), this.self());
 		}
 	}
-	
+
 	private void handle(MemberRemoved message) {
 		if (this.masterSystem.equals(message.member()))
 			this.self().tell(PoisonPill.getInstance(), ActorRef.noSender());
 	}
 
 	private void handle(TaskMessage task) {
-		log().info("Got task - 0/3");
 		//0. Pre-Processing
+		log().info("Got task - 0/3");
 		String[] line = task.getLine();
-
 		char[] globalAlphabet = Arrays.copyOf(line[2].toCharArray(), line[2].toCharArray().length);
 		int passwordLength = Integer.parseInt(line[3]);
 		String passwordToCrack = line[4];
+		String passwordId = line[0];
+
 		this.hintHashes = new ArrayList(Arrays.asList(Arrays.copyOfRange(line, 5, line.length)));
 		this.crackedHints = new ArrayList<>();
 		this.crackedPassword = "";
@@ -147,7 +149,7 @@ public class Worker extends AbstractLoggingActor {
 		//3. Send PW to Master
 		// todo: use large message proxy
 		log().info("Send to master - 3/3");
-		CompletionMessage completed = new CompletionMessage(this.crackedPassword);
+		CompletionMessage completed = new CompletionMessage(this.crackedPassword, passwordId);
 		this.sender().tell(completed, this.self());
 	}
 
@@ -196,15 +198,11 @@ public class Worker extends AbstractLoggingActor {
 
 		for (int i = 0; i < size; i++) {
 			generatePermutation(a, size - 1);
-
-			// If size is odd, swap first and last element
 			if (size % 2 == 1) {
 				char temp = a[0];
 				a[0] = a[size - 1];
 				a[size - 1] = temp;
 			}
-
-			// If size is even, swap i-th and last element
 			else {
 				char temp = a[i];
 				a[i] = a[size - 1];
@@ -217,14 +215,12 @@ public class Worker extends AbstractLoggingActor {
 		if (!this.crackedPassword.equals("")) {
 			return;
 		}
-
 		if (k == 0) {
 			if (hash(prefix).equals(passwordHash)) {
 				this.crackedPassword = prefix;
 			}
 			return;
 		}
-
 		for (int i = 0; i < n; i++) {
 			String newPrefix = (prefix + set.get(i));
 			generateCombinations(set, newPrefix, n, k - 1, passwordHash);

@@ -186,7 +186,6 @@ public class Master extends AbstractLoggingActor {
 		} else {
 			this.idleWorkers.add(this.sender());
 		}
-	
 	}
 	
 	protected void handle(Terminated message) {
@@ -206,8 +205,10 @@ public class Master extends AbstractLoggingActor {
 		this.idleWorkers.add(this.sender());
 		passwordsInQueueCounter	--;
 		workerTaskAssignment.remove(sender());
+
 		log().info("Got password from worker {}", this.sender());
-		this.collector.tell(new Collector.CollectMessage(message.getResult()), this.self());
+
+		this.collector.tell(new Collector.CollectMessage(message.getResultId() + " | " + message.getResult()), this.self());
 		// we have cracked all passwords and can terminate the cracking
 		if (passwordsInQueueCounter <= 0 && this.taskMessages.isEmpty()) {
 			log().info("Received last password, terminating execution and printing results");
