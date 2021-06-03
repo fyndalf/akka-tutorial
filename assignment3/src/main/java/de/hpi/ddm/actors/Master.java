@@ -151,6 +151,7 @@ public class Master extends AbstractLoggingActor {
 
 	private void assignAvailableTaskToWorker(ActorRef worker) {
 		TaskMessage task = this.taskMessages.remove();
+		//this.largeMessageProxy.tell(worker.largeMessageProxy.LargeMessage(task, this.self())); //this does not work :(
 		worker.tell(task, this.self());
 		log().info("Sent task to worker {}", worker);
 		workerTaskAssignment.put(worker, task);
@@ -179,7 +180,7 @@ public class Master extends AbstractLoggingActor {
 		this.log().info("Registered {}", this.sender());
 		
 		//todo: use large message proxy to send task data
-		//this.largeMessageProxy.tell(new LargeMessageProxy.LargeMessage<>(new Worker.WelcomeMessage(this.welcomeData), this.sender()), this.self());
+		//
 		
 		if (!this.taskMessages.isEmpty()) {
 			assignAvailableTaskToWorker(this.sender());

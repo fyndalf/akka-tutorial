@@ -147,7 +147,6 @@ public class Worker extends AbstractLoggingActor {
 		generateCombinations(passwordAlphabet, "", passwordAlphabet.size(), passwordLength, passwordToCrack);
 
 		//3. Send PW to Master
-		// todo: use large message proxy
 		log().info("Send to master - 3/3");
 		CompletionMessage completed = new CompletionMessage(this.crackedPassword, passwordId);
 		this.sender().tell(completed, this.self());
