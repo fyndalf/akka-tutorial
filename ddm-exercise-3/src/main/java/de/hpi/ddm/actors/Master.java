@@ -204,7 +204,7 @@ public class Master extends AbstractLoggingActor {
 	protected void handle(Worker.CompletionMessage message) {
 		this.idleWorkers.add(this.sender());
 		passwordsInQueueCounter	--;
-		workerTaskAssignment.remove(sender());
+		workerTaskAssignment.remove(this.sender());
 
 		log().info("Got password from worker {}", this.sender());
 
@@ -214,10 +214,8 @@ public class Master extends AbstractLoggingActor {
 			log().info("Received last password, terminating execution and printing results");
 			this.terminate();
 		} else {
-			if (!this.idleWorkers.isEmpty()  && !this.taskMessages.isEmpty()) {
-				assignAvailableTaskToWorker(this.sender());
-			} else {
-				this.idleWorkers.add(this.sender());
+			while (!this.idleWorkers.isEmpty() && !this.taskMessages.isEmpty()) {
+				assignAvailableTaskToWorker();
 			}
 		}
 	}
