@@ -44,7 +44,7 @@ public class MasterSystem {
 		
 		ActorRef collector = system.actorOf(Collector.props(), Collector.DEFAULT_NAME);
 		
-		ActorRef master = system.actorOf(Master.props(reader, collector), Master.DEFAULT_NAME);
+		ActorRef master = system.actorOf(Master.props(reader, collector, c.generateWelcomeData()), Master.DEFAULT_NAME);
 		
 		Cluster.get(system).registerOnMemberUp(new Runnable() {
 			@Override

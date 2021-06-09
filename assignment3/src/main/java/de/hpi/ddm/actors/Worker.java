@@ -14,6 +14,7 @@ import akka.cluster.Cluster;
 import akka.cluster.ClusterEvent.CurrentClusterState;
 import akka.cluster.ClusterEvent.MemberRemoved;
 import akka.cluster.ClusterEvent.MemberUp;
+import de.hpi.ddm.structures.BloomFilter;
 import de.hpi.ddm.actors.Master.TaskMessage;
 import de.hpi.ddm.systems.MasterSystem;
 import akka.cluster.Member;
@@ -44,6 +45,12 @@ public class Worker extends AbstractLoggingActor {
 	////////////////////
 
 	@Data @NoArgsConstructor @AllArgsConstructor
+	public static class WelcomeMessage implements Serializable {
+		private static final long serialVersionUID = 8343040942748609598L;
+		private BloomFilter welcomeData;
+	}
+
+	@Data @NoArgsConstructor @AllArgsConstructor
 	public static class CompletionMessage implements Serializable {
 		private static final long serialVersionUID = 2333143952648649095L;
 		private String result;
@@ -57,6 +64,7 @@ public class Worker extends AbstractLoggingActor {
 	private Member masterSystem;
 	private final Cluster cluster;
 	private final ActorRef largeMessageProxy;
+	private long registrationTime;
 
 	private List<Character> crackedHints = new ArrayList<>();
 	private List<String> hintHashes;
@@ -88,6 +96,7 @@ public class Worker extends AbstractLoggingActor {
 				.match(CurrentClusterState.class, this::handle)
 				.match(MemberUp.class, this::handle)
 				.match(MemberRemoved.class, this::handle)
+				.match(WelcomeMessage.class, this::handle)
 				.match(Master.TaskMessage.class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
 				.build();
@@ -111,12 +120,18 @@ public class Worker extends AbstractLoggingActor {
 			this.getContext()
 				.actorSelection(member.address() + "/user/" + Master.DEFAULT_NAME)
 				.tell(new Master.RegistrationMessage(), this.self());
+			this.registrationTime = System.currentTimeMillis();
 		}
 	}
 
 	private void handle(MemberRemoved message) {
 		if (this.masterSystem.equals(message.member()))
 			this.self().tell(PoisonPill.getInstance(), ActorRef.noSender());
+	}
+
+	private void handle(WelcomeMessage message) {
+		final long transmissionTime = System.currentTimeMillis() - this.registrationTime;
+		this.log().info("WelcomeMessage with " + message.getWelcomeData().getSizeInMB() + " MB data received in " + transmissionTime + " ms.");
 	}
 
 	private void handle(TaskMessage task) {
@@ -157,7 +172,7 @@ public class Worker extends AbstractLoggingActor {
 			MessageDigest digest = MessageDigest.getInstance("SHA-256");
 			byte[] hashedBytes = digest.digest(String.valueOf(characters).getBytes(StandardCharsets.UTF_8));
 
-			StringBuilder stringBuffer = new StringBuilder();
+			StringBuffer stringBuffer = new StringBuffer();
 			for (byte hashedByte : hashedBytes) {
 				stringBuffer.append(Integer.toString((hashedByte & 0xff) + 0x100, 16).substring(1));
 			}

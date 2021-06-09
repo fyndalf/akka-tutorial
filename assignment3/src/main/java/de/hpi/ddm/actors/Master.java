@@ -12,6 +12,7 @@ import akka.actor.ActorRef;
 import akka.actor.PoisonPill;
 import akka.actor.Props;
 import akka.actor.Terminated;
+import de.hpi.ddm.structures.BloomFilter;	
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -24,15 +25,16 @@ public class Master extends AbstractLoggingActor {
 	
 	public static final String DEFAULT_NAME = "master";
 
-	public static Props props(final ActorRef reader, final ActorRef collector) {
-		return Props.create(Master.class, () -> new Master(reader, collector));
+	public static Props props(final ActorRef reader, final ActorRef collector, final BloomFilter welcomeData) {
+		return Props.create(Master.class, () -> new Master(reader, collector, welcomeData));
 	}
 
-	public Master(final ActorRef reader, final ActorRef collector) {
+	public Master(final ActorRef reader, final ActorRef collector, final BloomFilter welcomeData) {
 		this.reader = reader;
 		this.collector = collector;
 		this.workers = new ArrayList<>();
 		this.largeMessageProxy = this.context().actorOf(LargeMessageProxy.props(), LargeMessageProxy.DEFAULT_NAME);
+		this.welcomeData = welcomeData;
 	}
 
 	////////////////////
@@ -69,6 +71,7 @@ public class Master extends AbstractLoggingActor {
 	private final ActorRef collector;
 	private final List<ActorRef> workers;
 	private final ActorRef largeMessageProxy;
+	private final BloomFilter welcomeData;
 
 	private final Queue<ActorRef> idleWorkers = new LinkedBlockingQueue<>();
 	private final Queue<TaskMessage> taskMessages = new LinkedBlockingQueue<>();
@@ -104,7 +107,6 @@ public class Master extends AbstractLoggingActor {
 
 	protected void handle(StartMessage message) {
 		this.startTime = System.currentTimeMillis();
-		
 		this.reader.tell(new Reader.ReadMessage(), this.self());
 	}
 	
@@ -151,7 +153,6 @@ public class Master extends AbstractLoggingActor {
 
 	private void assignAvailableTaskToWorker(ActorRef worker) {
 		TaskMessage task = this.taskMessages.remove();
-		//this.largeMessageProxy.tell(worker.largeMessageProxy.LargeMessage(task, this.self())); //this does not work :(
 		worker.tell(task, this.self());
 		log().info("Sent task to worker {}", worker);
 		workerTaskAssignment.put(worker, task);
@@ -178,10 +179,7 @@ public class Master extends AbstractLoggingActor {
 		this.context().watch(this.sender());
 		this.workers.add(this.sender());
 		this.log().info("Registered {}", this.sender());
-		
-		//todo: use large message proxy to send task data
-		//
-		
+		this.largeMessageProxy.tell(new LargeMessageProxy.LargeMessage<>(new Worker.WelcomeMessage(this.welcomeData), this.sender()), this.self());
 		if (!this.taskMessages.isEmpty()) {
 			assignAvailableTaskToWorker(this.sender());
 		} else {
