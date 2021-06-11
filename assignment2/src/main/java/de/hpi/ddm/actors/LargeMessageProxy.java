@@ -123,7 +123,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
                 .match(BytesMessage.class, this::handle)
                 .match(RequestMessage.class, this::handle)
                 .match(CompletionMessage.class, this::handle)
-                .matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
+                //.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
                 .build();
     }
 
@@ -143,6 +143,8 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 
         // how many chunks do we need to send in order to transmit the message?
         int chunkCount = (int) Math.ceil(messageBytes.length / (double) chunkBytes);
+        this.log().info("chunkCount:");
+        this.log().info(String.valueOf(chunkCount));
 
         // determine random message id used for reassembly
         int messageID = (int) Math.floor(Math.random() * Integer.MAX_VALUE);
@@ -244,6 +246,8 @@ public class LargeMessageProxy extends AbstractLoggingActor {
     }
 
     private void handle(RequestMessage requestMessage) {
+        this.log().info("Received request message");
+
         byte[] messageBytes = this.outgoingLargeMessages.get(requestMessage.getMessageID());
 
         int i = requestMessage.getLastChunkRead() + 1;
@@ -278,6 +282,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
     }
 
     private void handle(CompletionMessage completionMessage) {
+        this.log().info("Received completion message");
         int messageID = completionMessage.getMessageID();
         this.outgoingLargeMessages.remove(messageID);
     }
