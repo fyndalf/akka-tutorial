@@ -55,7 +55,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 
     // determine maximum byte size we are able to send, by reserving 12 bytes for meta information
     final int metaInfoBytes = 12;
-    final int chunkBytes = 1024 - metaInfoBytes; // todo: this can still be fine-tuned
+    final int chunkBytes = 262144 - metaInfoBytes; // todo: this can still be fine-tuned
     private final HashMap<Integer,byte[]> outgoingLargeMessages = new HashMap<>();
 
 
@@ -143,8 +143,6 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 
         // how many chunks do we need to send in order to transmit the message?
         int chunkCount = (int) Math.ceil(messageBytes.length / (double) chunkBytes);
-        this.log().info("chunkCount:");
-        this.log().info(String.valueOf(chunkCount));
 
         // determine random message id used for reassembly
         int messageID = (int) Math.floor(Math.random() * Integer.MAX_VALUE);
@@ -246,8 +244,6 @@ public class LargeMessageProxy extends AbstractLoggingActor {
     }
 
     private void handle(RequestMessage requestMessage) {
-        this.log().info("Received request message");
-
         byte[] messageBytes = this.outgoingLargeMessages.get(requestMessage.getMessageID());
 
         int i = requestMessage.getLastChunkRead() + 1;
@@ -282,7 +278,6 @@ public class LargeMessageProxy extends AbstractLoggingActor {
     }
 
     private void handle(CompletionMessage completionMessage) {
-        this.log().info("Received completion message");
         int messageID = completionMessage.getMessageID();
         this.outgoingLargeMessages.remove(messageID);
     }
