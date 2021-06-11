@@ -56,7 +56,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
     // determine maximum byte size we are able to send, by reserving 12 bytes for meta information
     final int metaInfoBytes = 12;
     final int chunkBytes = 1024 - metaInfoBytes; // todo: this can still be fine-tuned
-    HashMap<Int,byte[]> outgoingLargeMessages;
+    HashMap<Integer,byte[]> outgoingLargeMessages;
 
 
     public static Props props() {
@@ -89,18 +89,19 @@ public class LargeMessageProxy extends AbstractLoggingActor {
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class RequestMessage<T> implements Serializable {
+    public static class RequestMessage implements Serializable {
         private static final long serialVersionUID = 7157867778812214852L;
-        private Int messageID;
-        private Int lastChunkRead;
+        private int messageID;
+        private int lastChunkRead;
+        private int chunkCount;
     }
 
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class CompletionMessage<T> implements Serializable {
+    public static class CompletionMessage implements Serializable {
         private static final long serialVersionUID = 7157667278312114859L;
-        private Int messageID;
+        private int messageID;
     }
 
     /////////////////
@@ -120,6 +121,8 @@ public class LargeMessageProxy extends AbstractLoggingActor {
         return receiveBuilder()
                 .match(LargeMessage.class, this::handle)
                 .match(BytesMessage.class, this::handle)
+                .match(RequestMessage.class, this::handle)
+                .match(CompletionMessage.class, this::handle)
                 .matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
                 .build();
     }
@@ -155,7 +158,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 
         // split data into chunks
         byte[] dataBytes = Arrays
-                .copyOfRange(messageBytes, (i * chunkBytes), Math.min(((i + 1) * chunkBytes), messageBytes.length));
+                .copyOfRange(messageBytes, (0), Math.min(((i + 1) * chunkBytes), messageBytes.length));
         try {
             ByteArrayOutputStream chunkOutput = new ByteArrayOutputStream();
 
@@ -203,9 +206,6 @@ public class LargeMessageProxy extends AbstractLoggingActor {
             buffer = new LargeMessageBuffer(0, numberOfChunks, new byte[numberOfChunks][]);
             incomingLargeMessages.put(messageID, buffer);
         }
-        else {
-            this.sender.tell(new RequestMessage(messageID,chunkID));
-        }
 
         // add chunk to buffer
         buffer.bufferMessagePartFromChunk(chunkID, messageData);
@@ -237,18 +237,20 @@ public class LargeMessageProxy extends AbstractLoggingActor {
             // redirect message to actual target we proxy here
             BytesMessage<Object> messageToReceiver = new BytesMessage<>(messageObject, this.sender(), message.getReceiver());
             message.getReceiver().tell(messageToReceiver.getBytes(), message.getSender());
-            message.getSender().tell(new CompletionMessage<>(messageID));
-
-
+            message.getSender().tell(new CompletionMessage(messageID), this.self());
+        } else {
+            this.sender().tell(new RequestMessage(messageID, chunkID, numberOfChunks), this.self());
         }
     }
 
-    private void handle(RequestMessage<?> requestMessage) {
+    private void handle(RequestMessage requestMessage) {
+        byte[] messageBytes = outgoingLargeMessages.get(requestMessage.getMessageID());
 
-        bytes[] messageBytes = outgoingLargeMessages.get(requestMessage.get(messageID));
-
-        int i = requestMessage.get(chunkID)+1;
+        int i = requestMessage.getLastChunkRead() +1;
         byte[] chunkIDBytes = ByteBuffer.allocate(4).putInt(i).array();
+
+        byte[] messageIdBytes = ByteBuffer.allocate(4).putInt(requestMessage.getMessageID()).array();
+        byte[] chunkCountBytes = ByteBuffer.allocate(4).putInt(requestMessage.getChunkCount()).array();
 
         // split data into chunks
         byte[] dataBytes = Arrays
@@ -268,15 +270,15 @@ public class LargeMessageProxy extends AbstractLoggingActor {
             byte[] messageChunk = chunkOutput.toByteArray();
 
             // send chunk to receiver
-            BytesMessage<byte[]> chunkMessage = new BytesMessage<>(messageChunk, sender, receiver);
-            receiverProxy.tell(chunkMessage, this.self());
+            BytesMessage<byte[]> chunkMessage = new BytesMessage<>(messageChunk, this.self(), this.sender());
+            this.sender().tell(chunkMessage, this.self());
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
-    private void handle(CompletionMessage<?> completionMessage) {
-        int messageID = completionMessage.get(messageID);
+    private void handle(CompletionMessage completionMessage) {
+        int messageID = completionMessage.getMessageID();
         this.outgoingLargeMessages.remove(messageID);
     }
 }
