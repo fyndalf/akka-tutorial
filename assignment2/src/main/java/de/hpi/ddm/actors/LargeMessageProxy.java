@@ -56,7 +56,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
     // determine maximum byte size we are able to send, by reserving 12 bytes for meta information
     final int metaInfoBytes = 12;
     final int chunkBytes = 1024 - metaInfoBytes; // todo: this can still be fine-tuned
-    HashMap<Integer,byte[]> outgoingLargeMessages;
+    private final HashMap<Integer,byte[]> outgoingLargeMessages = new HashMap<>();
 
 
     public static Props props() {
@@ -237,16 +237,16 @@ public class LargeMessageProxy extends AbstractLoggingActor {
             // redirect message to actual target we proxy here
             BytesMessage<Object> messageToReceiver = new BytesMessage<>(messageObject, this.sender(), message.getReceiver());
             message.getReceiver().tell(messageToReceiver.getBytes(), message.getSender());
-            message.getSender().tell(new CompletionMessage(messageID), this.self());
+            this.sender().tell(new CompletionMessage(messageID), this.self());
         } else {
             this.sender().tell(new RequestMessage(messageID, chunkID, numberOfChunks), this.self());
         }
     }
 
     private void handle(RequestMessage requestMessage) {
-        byte[] messageBytes = outgoingLargeMessages.get(requestMessage.getMessageID());
+        byte[] messageBytes = this.outgoingLargeMessages.get(requestMessage.getMessageID());
 
-        int i = requestMessage.getLastChunkRead() +1;
+        int i = requestMessage.getLastChunkRead() + 1;
         byte[] chunkIDBytes = ByteBuffer.allocate(4).putInt(i).array();
 
         byte[] messageIdBytes = ByteBuffer.allocate(4).putInt(requestMessage.getMessageID()).array();
