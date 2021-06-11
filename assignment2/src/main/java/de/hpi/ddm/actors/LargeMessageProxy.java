@@ -56,6 +56,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
     // determine maximum byte size we are able to send, by reserving 12 bytes for meta information
     final int metaInfoBytes = 12;
     final int chunkBytes = 1024 - metaInfoBytes; // todo: this can still be fine-tuned
+    HashMap<Int,byte[]> outgoingLargeMessages;
 
 
     public static Props props() {
@@ -83,6 +84,23 @@ public class LargeMessageProxy extends AbstractLoggingActor {
         private T bytes;
         private ActorRef sender;
         private ActorRef receiver;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RequestMessage<T> implements Serializable {
+        private static final long serialVersionUID = 7157867778812214852L;
+        private Int messageID;
+        private Int lastChunkRead;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CompletionMessage<T> implements Serializable {
+        private static final long serialVersionUID = 7157667278312114859L;
+        private Int messageID;
     }
 
     /////////////////
@@ -126,37 +144,39 @@ public class LargeMessageProxy extends AbstractLoggingActor {
         // determine random message id used for reassembly
         int messageID = (int) Math.floor(Math.random() * Integer.MAX_VALUE);
 
+        this.outgoingLargeMessages.put(messageID,messageBytes);
         byte[] messageIdBytes = ByteBuffer.allocate(4).putInt(messageID).array();
         byte[] chunkCountBytes = ByteBuffer.allocate(4).putInt(chunkCount).array();
 
         // for each chunk of large message
-        for (int i = 0; i < chunkCount; i++) {
-            byte[] chunkIDBytes = ByteBuffer.allocate(4).putInt(i).array();
+        int i=0;
 
-            // split data into chunks
-            byte[] dataBytes = Arrays
-                    .copyOfRange(messageBytes, (i * chunkBytes), Math.min(((i + 1) * chunkBytes), messageBytes.length));
-            try {
-                ByteArrayOutputStream chunkOutput = new ByteArrayOutputStream();
+        byte[] chunkIDBytes = ByteBuffer.allocate(4).putInt(i).array();
 
-                // write 12 bites used for identifying message, total number of chunks, and which chunk is transmitted
-                chunkOutput.write(messageIdBytes);
-                chunkOutput.write(chunkCountBytes);
-                chunkOutput.write(chunkIDBytes);
+        // split data into chunks
+        byte[] dataBytes = Arrays
+                .copyOfRange(messageBytes, (i * chunkBytes), Math.min(((i + 1) * chunkBytes), messageBytes.length));
+        try {
+            ByteArrayOutputStream chunkOutput = new ByteArrayOutputStream();
 
-                // write actual message chunk
-                chunkOutput.write(dataBytes);
+            // write 12 bites used for identifying message, total number of chunks, and which chunk is transmitted
+            chunkOutput.write(messageIdBytes);
+            chunkOutput.write(chunkCountBytes);
+            chunkOutput.write(chunkIDBytes);
 
-                // convert message to byte array
-                byte[] messageChunk = chunkOutput.toByteArray();
+            // write actual message chunk
+            chunkOutput.write(dataBytes);
 
-                // send chunk to receiver
-                BytesMessage<byte[]> chunkMessage = new BytesMessage<>(messageChunk, sender, receiver);
-                receiverProxy.tell(chunkMessage, this.self());
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+            // convert message to byte array
+            byte[] messageChunk = chunkOutput.toByteArray();
+
+            // send chunk to receiver
+            BytesMessage<byte[]> chunkMessage = new BytesMessage<>(messageChunk, sender, receiver);
+            receiverProxy.tell(chunkMessage, this.self());
+        } catch (IOException e) {
+            e.printStackTrace();
         }
+
     }
 
     private void handle(BytesMessage<?> message) {
@@ -182,6 +202,9 @@ public class LargeMessageProxy extends AbstractLoggingActor {
         if (buffer == null) {
             buffer = new LargeMessageBuffer(0, numberOfChunks, new byte[numberOfChunks][]);
             incomingLargeMessages.put(messageID, buffer);
+        }
+        else {
+            this.sender.tell(new RequestMessage(messageID,chunkID));
         }
 
         // add chunk to buffer
@@ -214,7 +237,46 @@ public class LargeMessageProxy extends AbstractLoggingActor {
             // redirect message to actual target we proxy here
             BytesMessage<Object> messageToReceiver = new BytesMessage<>(messageObject, this.sender(), message.getReceiver());
             message.getReceiver().tell(messageToReceiver.getBytes(), message.getSender());
+            message.getSender().tell(new CompletionMessage<>(messageID));
+
 
         }
+    }
+
+    private void handle(RequestMessage<?> requestMessage) {
+
+        bytes[] messageBytes = outgoingLargeMessages.get(requestMessage.get(messageID));
+
+        int i = requestMessage.get(chunkID)+1;
+        byte[] chunkIDBytes = ByteBuffer.allocate(4).putInt(i).array();
+
+        // split data into chunks
+        byte[] dataBytes = Arrays
+                .copyOfRange(messageBytes, (i * chunkBytes), Math.min(((i + 1) * chunkBytes), messageBytes.length));
+        try {
+            ByteArrayOutputStream chunkOutput = new ByteArrayOutputStream();
+
+            // write 12 bites used for identifying message, total number of chunks, and which chunk is transmitted
+            chunkOutput.write(messageIdBytes);
+            chunkOutput.write(chunkCountBytes);
+            chunkOutput.write(chunkIDBytes);
+
+            // write actual message chunk
+            chunkOutput.write(dataBytes);
+
+            // convert message to byte array
+            byte[] messageChunk = chunkOutput.toByteArray();
+
+            // send chunk to receiver
+            BytesMessage<byte[]> chunkMessage = new BytesMessage<>(messageChunk, sender, receiver);
+            receiverProxy.tell(chunkMessage, this.self());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void handle(CompletionMessage<?> completionMessage) {
+        int messageID = completionMessage.get(messageID);
+        this.outgoingLargeMessages.remove(messageID);
     }
 }
