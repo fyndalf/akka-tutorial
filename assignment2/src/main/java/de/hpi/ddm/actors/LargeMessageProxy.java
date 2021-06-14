@@ -55,7 +55,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 
     // determine maximum byte size we are able to send, by reserving 12 bytes for meta information
     final int metaInfoBytes = 12;
-    final int chunkBytes = 262144 - metaInfoBytes; // todo: this can still be fine-tuned
+    final int chunkBytes = 200000 - metaInfoBytes; // todo: this can still be fine-tuned
     private final HashMap<Integer,byte[]> outgoingLargeMessages = new HashMap<>();
 
 
@@ -94,6 +94,8 @@ public class LargeMessageProxy extends AbstractLoggingActor {
         private int messageID;
         private int lastChunkRead;
         private int chunkCount;
+        private ActorRef sender;
+        private ActorRef receiver;
     }
 
     @Data
@@ -123,7 +125,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
                 .match(BytesMessage.class, this::handle)
                 .match(RequestMessage.class, this::handle)
                 .match(CompletionMessage.class, this::handle)
-                //.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
+                .matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.getClass().toString()))
                 .build();
     }
 
@@ -235,11 +237,11 @@ public class LargeMessageProxy extends AbstractLoggingActor {
             Object messageObject = kryo.fromBytes(completeMessage);
 
             // redirect message to actual target we proxy here
-            BytesMessage<Object> messageToReceiver = new BytesMessage<>(messageObject, this.sender(), message.getReceiver());
+            BytesMessage<Object> messageToReceiver = new BytesMessage<>(messageObject, message.getSender(), message.getReceiver());
             message.getReceiver().tell(messageToReceiver.getBytes(), message.getSender());
             this.sender().tell(new CompletionMessage(messageID), this.self());
         } else {
-            this.sender().tell(new RequestMessage(messageID, chunkID, numberOfChunks), this.self());
+            this.sender().tell(new RequestMessage(messageID, chunkID, numberOfChunks, message.getSender(), message.getReceiver()), this.self());
         }
     }
 
@@ -270,7 +272,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
             byte[] messageChunk = chunkOutput.toByteArray();
 
             // send chunk to receiver
-            BytesMessage<byte[]> chunkMessage = new BytesMessage<>(messageChunk, this.self(), this.sender());
+            BytesMessage<byte[]> chunkMessage = new BytesMessage<>(messageChunk, requestMessage.getSender(), requestMessage.getReceiver());
             this.sender().tell(chunkMessage, this.self());
         } catch (IOException e) {
             e.printStackTrace();
