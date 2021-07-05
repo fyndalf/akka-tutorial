@@ -14,5 +14,6 @@ libraryDependencies += "org.apache.spark" %% "spark-mllib" % "3.0.0"
 
 assemblyMergeStrategy in assembly := {
   case PathList("META-INF", xs @ _*) => MergeStrategy.discard
+  case PathList("META-INF","services",xs @ _*) => MergeStrategy.filterDistinctLines
   case x => MergeStrategy.first
 }

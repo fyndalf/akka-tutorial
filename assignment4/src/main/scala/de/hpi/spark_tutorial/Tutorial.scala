@@ -67,6 +67,8 @@ object Tutorial {
       .csv("data/employees.csv") // also text, json, jdbc, parquet
       .as[(String, Int, Double, String)]
 
+    employees.show()
+
     // Read a Dataset from a database: (requires a database being setup as well as driver class in maven)
     //    val top_templates = spark.sqlContext.read.format("jdbc")
     //      .option("url", "jdbc:postgresql://localhost/changedb")
@@ -77,6 +79,8 @@ object Tutorial {
     //      .option("password", "dummy")
     //      .option("dbtable","templates_infoboxes")
     //      .load()
+
+    println("---------------------------------------------------------------------------------------------------------")
 
     //------------------------------------------------------------------------------------------------------------------
     // Basic transformations
@@ -102,7 +106,7 @@ object Tutorial {
     // DataFrame and Dataset
     val untypedDF = numbers.toDF() // DS to DF
     val stringTypedDS = untypedDF.map(r => r.get(0).toString) // DF to DS via map
-    val integerTypedDS = untypedDF.as[Int] // DF to DS via as() function that cast columns to a concrete types
+    val integerTypedDS = untypedDF.as[Int] // DF to DS via as() function that cast columns to concrete types
     List(untypedDF, stringTypedDS, integerTypedDS).foreach(result => println(result.head.getClass))
     List(untypedDF, stringTypedDS, integerTypedDS).foreach(result => println(result.head))
 
@@ -279,7 +283,7 @@ object Tutorial {
     //                I.e. a ML workflow specification.
 
     // Automatically identify categorical features, and index them.
-    // The Vectors only contain numerical values, so we need to flag which values are categorical
+    // The Vectors contain only numerical values, so we need to flag which values are categorical
     // A VectorIndexer is a transformer that, in this case, adds a column.
     val featureIndexer = new VectorIndexer()
       .setInputCol("features")
@@ -310,10 +314,10 @@ object Tutorial {
       .asInstanceOf[DecisionTreeClassificationModel]
     println("Learned classification tree model:\n" + treeModel.toDebugString)
 
+    println("---------------------------------------------------------------------------------------------------------")
+
     // Make predictions in an additional column in the output dataframe with default name "prediction"
     val predictions = model.transform(testData)
-
-    println("---------------------------------------------------------------------------------------------------------")
 
     // Select example rows to display
     predictions
