@@ -27,18 +27,32 @@ object Sindy {
       }).toDF()
     })
 
-    val groupedCells = cells.reduce((cell1, cell2) => cell1.join(cell2, cell2.columns, joinType = "fullouter"))
+    val groupedCells = cells
+      .reduce((cell1, cell2) => cell1.join(cell2, cell2.columns, joinType = "fullouter"))
 
-    val groupAndAggregated = groupedCells.groupBy("_1").agg(collect_set("_2").as("attributeSet"))
+    val groupAndAggregated = groupedCells
+      .groupBy("_1")
+      .agg(collect_set("_2").as("attributeSet"))
 
-    val attributeSets = groupAndAggregated.select("attributeSet")
+    val attributeSets = groupAndAggregated
+      .select("attributeSet")
 
-    val inclusionLists = attributeSets.select(explode(col("attributeSet")).as("key"), col("attributeSet")).as[(String, Seq[String])]
-      .map(row => (row._1, row._2.filter(a => !a.equals(row._1)))).filter(row => row._2.nonEmpty).sort(col("_1"))
+    val inclusionLists = attributeSets
+      .select(explode(col("attributeSet")).as("key"), col("attributeSet")).as[(String, Seq[String])]
+      .map(row => (row._1, row._2.filter(a => !a.equals(row._1))))
+      .filter(row => row._2.nonEmpty)
+      .sort(col("_1"))
 
-    val inds = inclusionLists.groupByKey(t => t._1).mapGroups((g, h) => (g, h.map(_._2).reduce(_.intersect(_)))).filter(row => row._2.nonEmpty).sort("_1")
+    val inds = inclusionLists
+      .groupByKey(t => t._1)
+      .mapGroups((g, h) =>
+        (g, h.map(_._2).reduce(_.intersect(_))))
+      .filter(row => row._2.nonEmpty)
+      .sort("_1")
 
-    inds.collect().foreach(row => println(row._1 + " < " + row._2.sorted.reduce(_ + ", " + _)))
+    inds
+      .collect()
+      .foreach(row => println(row._1 + " < " + row._2.sorted.reduce(_ + ", " + _)))
 
   }
 }
