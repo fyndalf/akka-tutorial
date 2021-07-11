@@ -52,24 +52,6 @@ object SimpleSpark extends App {
     // Set the default number of shuffle partitions (default is 200, which is too high for local deployment)
     spark.conf.set("spark.sql.shuffle.partitions", partitions.toString)
 
-    println("---------------------------------------------------------------------------------------------------------")
-
-    //------------------------------------------------------------------------------------------------------------------
-    // Spark Tutorial
-    //------------------------------------------------------------------------------------------------------------------
-
-    Tutorial.execute(spark)
-
-    //------------------------------------------------------------------------------------------------------------------
-    // Longest Common Substring Search
-    //------------------------------------------------------------------------------------------------------------------
-
-    time {LongestCommonSubstring.discoverLCSs("students2", spark)}
-
-    //------------------------------------------------------------------------------------------------------------------
-    // Inclusion Dependency Discovery (Homework)
-    //------------------------------------------------------------------------------------------------------------------
-
     val inputs = List("region", "nation", "supplier", "customer", "part", "lineitem", "orders")
       .map(name => s"$path/tpch_$name.csv")
 
